@@ -1,0 +1,101 @@
+name: Lasershow Monitor
+
+on:
+  # Elke dag om 07:00 NL-tijd (= 05:00 UTC zomer / 06:00 UTC winter)
+  schedule:
+    - cron: '0 5 * * *'
+
+  # Handmatig starten via GitHub UI (Actions-tab â Run workflow)
+  # Geeft extra opties: digest forceren of testmodus
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Uitvoermodus'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily        # Normale dagelijkse run
+          - digest       # Forceer weekoverzicht nu
+          - test         # Test feeds + scoring, geen e-mail
+
+jobs:
+  monitor:
+    name: Dagelijkse mediascan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # ââ 1. Broncode ophalen ââââââââââââââââââââââââââââââââââââââââââââââ
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # ââ 2. Python instellen ââââââââââââââââââââââââââââââââââââââââââââââ
+      - name: Python 3.12 instellen
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      # ââ 3. Afhankelijkheden installeren ââââââââââââââââââââââââââââââââââ
+      - name: Afhankelijkheden installeren
+        run: pip install -r requirements.txt
+
+      # ââ 4. Database herstellen uit cache âââââââââââââââââââââââââââââââââ
+      #
+      # De database (monitor.db) bevat alle al-geziene artikelen.
+      # Zonder cache vergelijkt de monitor niets en stuur je elke run
+      # dezelfde berichten opnieuw. De cache slaat de DB op per week-nummer
+      # zodat hij niet onbeperkt groeit.
+      #
+      - name: Database herstellen
+        id: cache-db
+        uses: actions/cache@v4
+        with:
+          path: monitor.db
+          # Sleutel: jaar + weeknummer â cache wordt wekelijks ververst
+          key: monitor-db-${{ github.run_id }}
+          restore-keys: |
+            monitor-db-
+
+      # ââ 5. Monitor draaien âââââââââââââââââââââââââââââââââââââââââââââââ
+      - name: Monitor uitvoeren
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SMTP_HOST:         ${{ secrets.SMTP_HOST }}
+          SMTP_PORT:         ${{ secrets.SMTP_PORT }}
+          SMTP_USER:         ${{ secrets.SMTP_USER }}
+          SMTP_PASS:         ${{ secrets.SMTP_PASS }}
+          SMTP_FROM:         ${{ secrets.SMTP_FROM }}
+          ALERT_EMAIL:       ${{ secrets.ALERT_EMAIL }}
+          MONITOR_DB:        monitor.db
+        run: |
+          MODE="${{ github.event.inputs.mode || 'daily' }}"
+          echo "Uitvoermodus: $MODE"
+          case "$MODE" in
+            digest) python monitor.py --digest ;;
+            test)   python monitor.py --test   ;;
+            *)      python monitor.py          ;;
+          esac
+
+      # ââ 6. Database opslaan in cache âââââââââââââââââââââââââââââââââââââ
+      - name: Database opslaan
+        if: always()   # ook opslaan als de run gedeeltelijk mislukt
+        uses: actions/cache/save@v4
+        with:
+          path: monitor.db
+          key: monitor-db-${{ github.run_id }}
+
+      # ââ 7. Database als artifact uploaden (30 dagen bewaren) âââââââââââââ
+      #
+      # Hiermee kun je de DB downloaden via de Actions-tab om handmatig
+      # te inspecteren (bijv. met DB Browser for SQLite).
+      #
+      - name: Database uploaden als artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitor-db-${{ github.run_number }}
+          path: monitor.db
+          retention-days: 30
+          overwrite: true
