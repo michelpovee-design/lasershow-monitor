@@ -1,0 +1,15 @@
+{
+  "_comment": "Kopieer dit bestand naar config.json en vul je eigen waarden in.",
+
+  "anthropic_api_key": "sk-ant-JOUW_SLEUTEL_HIER",
+
+  "email": {
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,
+    "use_tls": true,
+    "username": "jouwemail@gmail.com",
+    "password": "jouw_app_wachtwoord",
+    "from": "Lasershow Monitor <jouwemail@gmail.com>",
+    "to": ["jouwemail@gmail.com"]
+  }
+}
